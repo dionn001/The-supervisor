@@ -19,6 +19,9 @@ const client = new Client({
 const OWNER_ID = '1140339824335786065';
 const PREFIX = '!';
 
+// Map om spam bij te houden per gebruiker
+const spamTracker = new Map();
+
 client.once('ready', () => {
     console.log(`Logged in as ${client.user.tag}! Bot is fully operational.`);
     client.user.setActivity('server protection & security', { type: 3 });
@@ -26,7 +29,7 @@ client.once('ready', () => {
 
 // Automatic security & command handler
 client.on('messageCreate', async message => {
-    if (message.author.bot) return;
+    if (message.author.bot || !message.guild) return;
 
     // 1. Anti-Link Protection
     if (message.content.includes('http://') || message.content.includes('https://') || message.content.includes('www.')) {
@@ -42,7 +45,40 @@ client.on('messageCreate', async message => {
         }
     }
 
-    // 2. Command Processing (starts with '!')
+    // 2. Automated Anti-Spam Protection
+    if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator) && !message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+        const userId = message.author.id;
+        const currentTime = Date.now();
+        
+        if (!spamTracker.has(userId)) {
+            spamTracker.set(userId, []);
+        }
+
+        const userTimestamps = spamTracker.get(userId);
+        // Voeg huidige tijd toe en behoud alleen berichten van de laatste 4 seconden
+        userTimestamps.push(currentTime);
+        const recentMessages = userTimestamps.filter(timestamp => currentTime - timestamp < 4000);
+        spamTracker.set(userId, recentMessages);
+
+        // Als iemand 5 of meer berichten stuurt binnen 4 seconden -> spam gedetecteerd!
+        if (recentMessages.length >= 5) {
+            try {
+                // Geef de gebruiker automatisch een time-out van 5 minuten (300000ms)
+                await message.member.timeout(300000, 'Automatic Anti-Spam: Sending messages too fast.');
+                
+                const spamWarning = await message.channel.send(`🔇 **${message.author}** has been automatically timed out for 5 minutes due to spamming.`);
+                setTimeout(() => spamWarning.delete().catch(() => {}), 6000);
+                
+                // Wis de tracker voor deze gebruiker
+                spamTracker.delete(userId);
+                return;
+            } catch (err) {
+                console.error("Failed to apply anti-spam timeout:", err);
+            }
+        }
+    }
+
+    // 3. Command Processing (starts with '!')
     if (!message.content.startsWith(PREFIX)) return;
 
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
@@ -242,7 +278,6 @@ client.on('messageCreate', async message => {
         if (!role) return message.reply('⚠️ Please mention a role to grant admin status (`!addadmin @RoleName`).');
 
         try {
-            // Geeft de rol automatisch de Administrator permissie binnen Discord
             await role.setPermissions([PermissionsBitField.Flags.Administrator], `Granted bot admin by ${message.author.tag}`);
             message.channel.send(`✅ Role **${role.name}** has been successfully granted full Administrator privileges.`);
         } catch (err) {
@@ -259,7 +294,6 @@ client.on('messageCreate', async message => {
         if (!role) return message.reply('⚠️ Please mention a role to remove admin status (`!removeadmin @RoleName`).');
 
         try {
-            // Verwijdert de Administrator permissie van de rol
             await role.setPermissions([], `Removed bot admin by ${message.author.tag}`);
             message.channel.send(`✅ Administrator privileges have been removed from **${role.name}**.`);
         } catch (err) {
