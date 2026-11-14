@@ -22,7 +22,7 @@ const serverSettings = new Map();
 const spamMap = new Map();
 const joinMap = new Map();
 
-// Jouw unieke Owner ID (kan niet worden gekickd, gebanned of gedegradeerd)
+// Jouw unieke Owner ID
 const OWNER_ID = '1140339824335786065';
 
 // Registreer alle Slash Commando's
@@ -56,7 +56,50 @@ const commands = [
                     { name: 'On', value: 'on' },
                     { name: 'Off', value: 'off' }
                 ))
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+    new SlashCommandBuilder()
+        .setName('clear')
+        .setDescription('Delete a specific amount of messages (1-100)')
+        .addIntegerOption(option =>
+            option.setName('amount')
+                .setDescription('Number of messages to delete')
+                .setRequired(true)
+                .setMinValue(1)
+                .setMaxValue(100))
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+
+    new SlashCommandBuilder()
+        .setName('ban')
+        .setDescription('Ban a member from the server')
+        .addUserOption(option =>
+            option.setName('target')
+                .setDescription('The user to ban')
+                .setRequired(true))
+        .addStringOption(option =>
+            option.setName('reason')
+                .setDescription('Reason for the ban'))
+        .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
+
+    new SlashCommandBuilder()
+        .setName('kick')
+        .setDescription('Kick a member from the server')
+        .addUserOption(option =>
+            option.setName('target')
+                .setDescription('The user to kick')
+                .setRequired(true))
+        .addStringOption(option =>
+            option.setName('reason')
+                .setDescription('Reason for the kick'))
+        .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
+
+    new SlashCommandBuilder()
+        .setName('serverinfo')
+        .setDescription('View information about this server'),
+
+    new SlashCommandBuilder()
+        .setName('botinfo')
+        .setDescription('View information about this bot')
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
@@ -64,33 +107,13 @@ client.once('ready', async () => {
     const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
     try {
         await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-        console.log('✅ Slash commands registered globally.');
+        console.log('✅ All advanced slash commands registered globally.');
     } catch (error) {
         console.error(error);
     }
 });
 
-// 🔒 OWNER BESCHERMING & ANTI-NUKE (Beschermt jou tegen weghalen van rollen/kicken)
-client.on('guildMemberUpdate', async (oldMember, newMember) => {
-    // Als jij het niet bent, negeren
-    if (newMember.id !== OWNER_ID) return;
-
-    // Check of ze jouw Administrator-rechten of rollen proberen af te pakken
-    const hadAdmin = oldMember.permissions.has(PermissionFlagsBits.Administrator);
-    const hasAdmin = newMember.permissions.has(PermissionFlagsBits.Administrator);
-
-    if (hadAdmin && !hasAdmin) {
-        try {
-            // Geef je direct je rollen/rechten terug als iemand ze probeert af te pakken
-            // Of stuur een melding naar het logkanaal
-            console.alert(`⚠️ Poging tot het afpakken van rechten van de Bot Owner (${newMember.user.tag}) in ${newMember.guild.name}!`);
-        } catch (err) {
-            console.error('Kon rechten niet herstellen:', err);
-        }
-    }
-});
-
-// 1. ANTI-RAID
+// Anti-Raid bij joinen
 client.on('guildMemberAdd', async (member) => {
     const guildId = member.guild.id;
     const settings = serverSettings.get(guildId) || { antiraid: true, antilink: true };
@@ -117,11 +140,9 @@ client.on('guildMemberAdd', async (member) => {
     }
 });
 
-// 2. BERICHTEN BEVEILIGING (Anti-Link & Anti-Spam)
+// Berichten beveiliging (Anti-Link & Anti-Spam)
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
-    
-    // Jij (Owner) mag altijd alles sturen (wordt nooit gestraft door anti-spam/links)
     if (message.author.id === OWNER_ID) return;
     if (message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
 
@@ -162,7 +183,7 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// 3. COMMANDO'S EN TICKETS
+// Afhandelen van alle commando's en knoppen
 client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
         const { commandName, options, guildId } = interaction;
@@ -201,8 +222,60 @@ client.on('interactionCreate', async (interaction) => {
             settings.antilink = (status === 'on');
             return interaction.reply({ content: `🔗 Anti-link protection has been turned **${status}**.`, ephemeral: true });
         }
+
+        if (commandName === 'clear') {
+            const amount = options.getInteger('amount');
+            await interaction.channel.bulkDelete(amount, true).catch(() => {});
+            return interaction.reply({ content: `🧹 Successfully deleted **${amount}** messages.`, ephemeral: true });
+        }
+
+        if (commandName === 'ban') {
+            const target = options.getUser('target');
+            const reason = options.getString('reason') || 'No reason provided';
+            const member = await interaction.guild.members.fetch(target.id).catch(() => {});
+            
+            if (!member) return interaction.reply({ content: '❌ User not found in this server.', ephemeral: true });
+
+            await member.ban({ reason }).catch(() => {});
+            return interaction.reply({ content: `🔨 Banned **${target.tag}** for: *${reason}*` });
+        }
+
+        if (commandName === 'kick') {
+            const target = options.getUser('target');
+            const reason = options.getString('reason') || 'No reason provided';
+            const member = await interaction.guild.members.fetch(target.id).catch(() => {});
+            
+            if (!member) return interaction.reply({ content: '❌ User not found in this server.', ephemeral: true });
+
+            await member.kick(reason).catch(() => {});
+            return interaction.reply({ content: `👢 Kicked **${target.tag}** for: *${reason}*` });
+        }
+
+        if (commandName === 'serverinfo') {
+            const embed = new EmbedBuilder()
+                .setTitle(`📊 Server Info: ${interaction.guild.name}`)
+                .addFields(
+                    { name: 'Total Members', value: `${interaction.guild.memberCount}`, inline: true },
+                    { name: 'Created On', value: `${interaction.guild.createdAt.toDateString()}`, inline: true }
+                )
+                .setColor('#38bdf8');
+            return interaction.reply({ embeds: [embed] });
+        }
+
+        if (commandName === 'botinfo') {
+            const embed = new EmbedBuilder()
+                .setTitle('🤖 Bot Information')
+                .setDescription('A secure, cloud-hosted moderation and ticket bot.')
+                .addFields(
+                    { name: 'Developer / Owner ID', value: `${OWNER_ID}`, inline: true },
+                    { name: 'Status', value: 'Online 24/7 in the cloud', inline: true }
+                )
+                .setColor('#5865F2');
+            return interaction.reply({ embeds: [embed] });
+        }
     }
 
+    // Tickets knoppen
     if (interaction.isButton() && interaction.customId === 'open_ticket') {
         const channelName = `ticket-${interaction.user.username.toLowerCase()}`;
         
