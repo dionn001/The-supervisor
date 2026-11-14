@@ -1,7 +1,7 @@
 const { Client, GatewayIntentBits, PermissionsBitField, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('discord.js');
 const express = require('express');
 
-// Express server zodat Render de bot online houdt
+// Express server to keep the bot alive on Render
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('GuardBot is alive and running!'));
@@ -20,108 +20,163 @@ const OWNER_ID = '1140339824335786065';
 const PREFIX = '!';
 
 client.once('ready', () => {
-    console.log(`Ingelogd als ${client.user.tag}! Bot is volledig operationeel.`);
-    client.user.setActivity('server protection', { type: 3 });
+    console.log(`Logged in as ${client.user.tag}! Bot is fully operational.`);
+    client.user.setActivity('server protection & security', { type: 3 });
 });
 
-// Automatische beveiligingen & commando handler
+// Automatic security & command handler
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // 1. Anti-Link beveiliging
+    // 1. Anti-Link Protection
     if (message.content.includes('http://') || message.content.includes('https://') || message.content.includes('www.')) {
         if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             try {
                 await message.delete();
-                const warning = await message.channel.send(`⚠️ ${message.author}, links sturen is niet toegestaan in deze server!`);
+                const warning = await message.channel.send(`⚠️ ${message.author}, sending links is not allowed in this server!`);
                 setTimeout(() => warning.delete().catch(() => {}), 5000);
                 return;
             } catch (err) {
-                console.error("Kon bericht niet verwijderen:", err);
+                console.error("Failed to delete message:", err);
             }
         }
     }
 
-    // 2. Commando verwerking (start met '!')
+    // 2. Command Processing (starts with '!')
     if (!message.content.startsWith(PREFIX)) return;
 
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // Commando: !help
+    // Command: !help
     if (command === 'help') {
         const embed = new EmbedBuilder()
-            .setTitle('🛡️ GuardBot Beveiliging & Commando\'s')
+            .setTitle('🛡️ GuardBot Security & Commands')
             .setColor(0x38bdf8)
-            .setDescription('Hier is een overzicht van alle beschikbare commando\'s:')
+            .setDescription('Here is a complete list of all available commands:')
             .addFields(
-                { name: '!ban @gebruiker', value: 'Verban een gebruiker permanent van de server.', inline: false },
-                { name: '!kick @gebruiker', value: 'Schop een gebruiker uit de server.', inline: false },
-                { name: '!clear [aantal]', value: 'Verwijder een aantal berichten tegelijk (1-100).', inline: false },
-                { name: '!lockdown', value: 'Beveilig de server direct tegen massale raids.', inline: false },
-                { name: '!ticket', value: 'Open een privégesprek met de moderatoren.', inline: false },
-                { name: '!ownerlock', value: 'Exclusieve beveiligingscheck voor de hoofdeigenaar.', inline: false }
+                { name: '!ban <@user> [reason]', value: 'Permanently ban a user from the server.', inline: false },
+                { name: '!kick <@user> [reason]', value: 'Kick a user out of the server.', inline: false },
+                { name: '!mute <@user> [time]', value: 'Timeout a user (e.g., !mute @user 10m).', inline: false },
+                { name: '!unmute <@user>', value: 'Remove a timeout from a user.', inline: false },
+                { name: '!clear <1-100>', value: 'Clear a specified amount of messages.', inline: false },
+                { name: '!lockdown', value: 'Instantly lock all text channels against raids.', inline: false },
+                { name: '!unlock', value: 'Lift the channel lockdown.', inline: false },
+                { name: '!slowmode <seconds>', value: 'Set a slowmode delay for the current channel.', inline: false },
+                { name: '!poll <question>', value: 'Create an interactive voting poll.', inline: false },
+                { name: '!serverinfo', value: 'Display detailed information about this server.', inline: false },
+                { name: '!userinfo [āk@user]', value: 'Display information about a user.', inline: false },
+                { name: '!ticket', value: 'Create a private support channel panel.', inline: false },
+                { name: '!ownerlock', value: 'Exclusive security verification for the bot owner.', inline: false }
             )
             .setFooter({ text: 'GuardBot Server Protection' });
 
         return message.channel.send({ embeds: [embed] });
     }
 
-    // Commando: !ban
+    // Command: !ban
     if (command === 'ban') {
         if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
-            return message.reply('❌ Je hebt geen rechten om dit commando te gebruiken (`Ban Members` vereist).');
+            return message.reply('❌ You do not have permission to use this command (`Ban Members` required).');
         }
         const member = message.mentions.members.first();
-        if (!member) return message.reply('⚠️ Vermeld alstublieft een geldige gebruiker om te bannen (`!ban @naam`).');
+        if (!member) return message.reply('⚠️ Please mention a valid user to ban (`!ban @user`).');
         
+        const reason = args.slice(1).join(' ') || 'No reason provided';
         try {
-            await member.ban({ reason: `Geband door ${message.author.tag}` });
-            message.channel.send(`✅ **${member.user.tag}** is succesvol verbannen uit de server.`);
+            await member.ban({ reason: `Banned by ${message.author.tag} | Reason: ${reason}` });
+            message.channel.send(`✅ **${member.user.tag}** has been successfully banned.`);
         } catch (err) {
-            message.reply('❌ Het is niet gelukt om deze gebruiker te bannen (mogelijk heeft de bot te weinig rechten).');
+            message.reply('❌ Failed to ban this user (missing permissions or higher role).');
         }
     }
 
-    // Commando: !kick
+    // Command: !kick
     if (command === 'kick') {
         if (!message.member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
-            return message.reply('❌ Je hebt geen rechten om dit commando te gebruiken (`Kick Members` vereist).');
+            return message.reply('❌ You do not have permission to use this command (`Kick Members` required).');
         }
         const member = message.mentions.members.first();
-        if (!member) return message.reply('⚠️ Vermeld alstublieft een geldige gebruiker om te kicken (`!kick @naam`).');
+        if (!member) return message.reply('⚠️ Please mention a valid user to kick (`!kick @user`).');
         
+        const reason = args.slice(1).join(' ') || 'No reason provided';
         try {
-            await member.kick(`Gekicked door ${message.author.tag}`);
-            message.channel.send(`✅ **${member.user.tag}** is succesvol gekicked uit de server.`);
+            await member.kick(`Kicked by ${message.author.tag} | Reason: ${reason}`);
+            message.channel.send(`✅ **${member.user.tag}** has been successfully kicked.`);
         } catch (err) {
-            message.reply('❌ Het is niet gelukt om deze gebruiker te kicken.');
+            message.reply('❌ Failed to kick this user.');
         }
     }
 
-    // Commando: !clear (berichten opschonen)
+    // Command: !mute (Timeout)
+    if (command === 'mute') {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+            return message.reply('❌ You do not have permission to timeout members (`Moderate Members` required).');
+        }
+        const member = message.mentions.members.first();
+        if (!member) return message.reply('⚠️ Please specify a user (`!mute @user 10m`).');
+
+        const timeArg = args[1];
+        if (!timeArg) return message.reply('⚠️ Please specify a duration (e.g., `10s`, `5m`, `1h`).');
+
+        let durationMs = 0;
+        const unit = timeArg.slice(-1);
+        const value = parseInt(timeArg.slice(0, -1));
+
+        if (isNaN(value)) return message.reply('⚠️ Invalid time format. Use numbers followed by s, m, or h.');
+
+        if (unit === 's') durationMs = value * 1000;
+        else if (unit === 'm') durationMs = value * 60 * 1000;
+        else if (unit === 'h') durationMs = value * 60 * 60 * 1000;
+        else return message.reply('⚠️ Use `s` for seconds, `m` for minutes, or `h` for hours.');
+
+        try {
+            await member.timeout(durationMs, `Timed out by ${message.author.tag}`);
+            message.channel.send(`🔇 **${member.user.tag}** has been put in timeout for ${timeArg}.`);
+        } catch (err) {
+            message.reply('❌ Failed to timeout this user.');
+        }
+    }
+
+    // Command: !unmute
+    if (command === 'unmute') {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.ModerateMembers)) {
+            return message.reply('❌ You lack permissions (`Moderate Members` required).');
+        }
+        const member = message.mentions.members.first();
+        if (!member) return message.reply('⚠️ Please mention a user to unmute.');
+
+        try {
+            await member.timeout(null);
+            message.channel.send(`🔊 Timeout has been removed for **${member.user.tag}**.`);
+        } catch (err) {
+            message.reply('❌ Failed to remove timeout.');
+        }
+    }
+
+    // Command: !clear
     if (command === 'clear') {
         if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
-            return message.reply('❌ Je hebt geen rechten om berichten te wissen (`Manage Messages` vereist).');
+            return message.reply('❌ You do not have permission to clear messages (`Manage Messages` required).');
         }
         const count = parseInt(args[0]);
         if (isNaN(count) || count < 1 || count > 100) {
-            return message.reply('⚠️ Geef een getal op tussen 1 en 100 (`!clear 50`).');
+            return message.reply('⚠️ Please specify a number between 1 and 100 (`!clear 50`).');
         }
 
         try {
             await message.channel.bulkDelete(count, true);
-            const confirmation = await message.channel.send(`🧹 Er zijn **${count}** berichten opgeschoond.`);
+            const confirmation = await message.channel.send(`🧹 Successfully cleared **${count}** messages.`);
             setTimeout(() => confirmation.delete().catch(() => {}), 4000);
         } catch (err) {
-            message.reply('❌ Berichten ouder dan 14 dagen kunnen niet in bulk worden verwijderd.');
+            message.reply('❌ Messages older than 14 days cannot be bulk deleted.');
         }
     }
 
-    // Commando: !lockdown (Anti-Raid beveiliging)
+    // Command: !lockdown
     if (command === 'lockdown') {
         if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return message.reply('❌ Alleen beheerders kunnen de lockdown activeren.');
+            return message.reply('❌ Only administrators can trigger a lockdown.');
         }
 
         try {
@@ -130,18 +185,105 @@ client.on('messageCreate', async message => {
                     await channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: false });
                 }
             });
-            message.channel.send('🔒 **SERVER LOCKDOWN GEACTIVEERD!** Alle tekstkanalen zijn tijdelijk op slot gezet tegen raids.');
+            message.channel.send('🔒 **SERVER LOCKDOWN ACTIVATED!** All text channels have been locked down.');
         } catch (err) {
-            message.reply('❌ Er is een fout opgetreden bij het activeren van de lockdown.');
+            message.reply('❌ An error occurred while activating lockdown.');
         }
     }
 
-    // Commando: !ticket (Ticketsysteem met knop)
+    // Command: !unlock
+    if (command === 'unlock') {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return message.reply('❌ Only administrators can lift a lockdown.');
+        }
+
+        try {
+            await message.guild.channels.cache.forEach(async (channel) => {
+                if (channel.type === ChannelType.GuildText) {
+                    await channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: null });
+                }
+            });
+            message.channel.send('🔓 **SERVER UNLOCKED!** Text channels are open again.');
+        } catch (err) {
+            message.reply('❌ An error occurred while lifting lockdown.');
+        }
+    }
+
+    // Command: !slowmode
+    if (command === 'slowmode') {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.ManageChannels)) {
+            return message.reply('❌ You need `Manage Channels` permission.');
+        }
+        const seconds = parseInt(args[0]);
+        if (isNaN(seconds) || seconds < 0 || seconds > 21600) {
+            return message.reply('⚠️ Please specify seconds between 0 and 21600 (`!slowmode 5`).');
+        }
+
+        try {
+            await message.channel.setRateLimitPerUser(seconds);
+            if (seconds === 0) {
+                message.channel.send('⏱️ Slowmode has been disabled.');
+            } else {
+                message.channel.send(`⏱️ Slowmode set to **${seconds}** seconds.`);
+            }
+        } catch (err) {
+            message.reply('❌ Failed to update slowmode.');
+        }
+    }
+
+    // Command: !poll
+    if (command === 'poll') {
+        const question = args.join(' ');
+        if (!question) return message.reply('⚠️ Please provide a poll question (`!poll Should we add new events?`).');
+
+        const embed = new EmbedBuilder()
+            .setTitle('📊 Server Poll')
+            .setDescription(question)
+            .setColor(0x5865F2)
+            .setFooter({ text: `Poll created by ${message.author.tag}` });
+
+        const pollMsg = await message.channel.send({ embeds: [embed] });
+        await pollMsg.react('👍');
+        await pollMsg.react('👎');
+        await message.delete().catch(() => {});
+    }
+
+    // Command: !serverinfo
+    if (command === 'serverinfo') {
+        const guild = message.guild;
+        const embed = new EmbedBuilder()
+            .setTitle(`Server Info: ${guild.name}`)
+            .setColor(0x38bdf8)
+            .setThumbnail(guild.iconURL({ dynamic: true }))
+            .addFields(
+                { name: 'Owner ID', value: `${guild.ownerId}`, inline: true },
+                { name: 'Total Members', value: `${guild.memberCount}`, inline: true },
+                { name: 'Created On', value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:R>`, inline: true }
+            );
+        return message.channel.send({ embeds: [embed] });
+    }
+
+    // Command: !userinfo
+    if (command === 'userinfo') {
+        const target = message.mentions.members.first() || message.member;
+        const embed = new EmbedBuilder()
+            .setTitle(`User Info: ${target.user.tag}`)
+            .setColor(0x38bdf8)
+            .setThumbnail(target.user.displayAvatarURL({ dynamic: true }))
+            .addFields(
+                { name: 'User ID', value: `${target.id}`, inline: true },
+                { name: 'Joined Server', value: `<t:${Math.floor(target.joinedTimestamp / 1000)}:R>`, inline: true },
+                { name: 'Account Created', value: `<t:${Math.floor(target.user.createdTimestamp / 1000)}:R>`, inline: true }
+            );
+        return message.channel.send({ embeds: [embed] });
+    }
+
+    // Command: !ticket
     if (command === 'ticket') {
         const embed = new EmbedBuilder()
-            .setTitle('🎫 Ondersteuning / Support Tickets')
+            .setTitle('🎫 Support Ticket System')
             .setColor(0x5865F2)
-            .setDescription('Klik op de knop hieronder om een privé supportkanaal te openen met ons moderatieteam.');
+            .setDescription('Click the button below to open a private support ticket with the staff team.');
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -153,16 +295,16 @@ client.on('messageCreate', async message => {
         return message.channel.send({ embeds: [embed], components: [row] });
     }
 
-    // Commando: !ownerlock (Eigenaar beveiliging)
+    // Command: !ownerlock
     if (command === 'ownerlock') {
         if (message.author.id !== OWNER_ID) {
-            return message.reply('⛔ **Toegang geweigerd!** Dit commando is uitsluitend voor de hoofdeigenaar van de bot.');
+            return message.reply('⛔ **Access Denied!** This command is strictly restricted to the primary owner.');
         }
-        message.channel.send(`👑 **Owner-Lock Bevestigd:** Welkom baas! Jouw ID (\`${OWNER_ID}\`) heeft volledige immuniteit en controle over het systeem.`);
+        message.channel.send(`👑 **Owner-Lock Confirmed:** Welcome boss! Your ID (\`${OWNER_ID}\`) holds supreme immunity and system control.`);
     }
 });
 
-// Interactie afhandeling voor het ticketsysteem knopje
+// Ticket button creation interaction handler
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
 
@@ -190,20 +332,20 @@ client.on('interactionCreate', async interaction => {
                 ],
             });
 
-            await interaction.reply({ content: `✅ Je ticket is aangemaakt: ${ticketChannel}`, ephemeral: true });
+            await interaction.reply({ content: `✅ Your ticket has been created: ${ticketChannel}`, ephemeral: true });
 
             const welcomeEmbed = new EmbedBuilder()
-                .setTitle(`Ticket van ${member.user.tag}`)
-                .setDescription('Welkom! Stel hier je vraag of leg je probleem uit. Een moderator helpt je zo snel mogelijk verder.')
+                .setTitle(`Ticket for ${member.user.tag}`)
+                .setDescription('Welcome! Describe your issue or question below. A staff member will assist you shortly.')
                 .setColor(0x38bdf8);
 
-            await ticketChannel.send({ content: `${member}, hier is je ticket!`, embeds: [welcomeEmbed] });
+            await ticketChannel.send({ content: `${member}, here is your ticket!`, embeds: [welcomeEmbed] });
         } catch (err) {
-            console.error("Fout bij aanmaken ticket:", err);
-            await interaction.reply({ content: '❌ Kon geen ticket kanaal aanmaken. Controleer de bot rechten.', ephemeral: true });
+            console.error("Error creating ticket channel:", err);
+            await interaction.reply({ content: '❌ Could not create ticket channel. Please check bot permissions.', ephemeral: true });
         }
     }
 });
 
-// Start de bot met de token uit Render environment variables
+// Start bot using token from Render environment variables
 client.login(process.env.TOKEN);
