@@ -1,320 +1,209 @@
+const { Client, GatewayIntentBits, PermissionsBitField, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('discord.js');
 const express = require('express');
-const app = express();
-app.get('/', (req, res) => res.send('Bot is alive!'));
-app.listen(process.env.PORT || 3000);
 
-const { 
-    Client, GatewayIntentBits, PermissionFlagsBits, 
-    EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, 
-    ChannelType, REST, Routes, SlashCommandBuilder 
-} = require('discord.js');
+// Express server zodat Render de bot online houdt
+const app = express();
+const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => res.send('GuardBot is alive and running!'));
+app.listen(PORT, () => console.log(`Web server running on port ${PORT}`));
 
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers
+        GatewayIntentBits.GuildMembers,
     ]
 });
 
-const serverSettings = new Map();
-const spamMap = new Map();
-const joinMap = new Map();
-
-// Jouw unieke Owner ID
 const OWNER_ID = '1140339824335786065';
+const PREFIX = '!';
 
-// Registreer alle Slash Commando's
-const commands = [
-    new SlashCommandBuilder()
-        .setName('ticket-setup')
-        .setDescription('Send the ticket creation panel in this channel')
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-    
-    new SlashCommandBuilder()
-        .setName('antiraid')
-        .setDescription('Turn anti-raid protection on or off')
-        .addStringOption(option =>
-            option.setName('status')
-                .setDescription('Choose on or off')
-                .setRequired(true)
-                .addChoices(
-                    { name: 'On', value: 'on' },
-                    { name: 'Off', value: 'off' }
-                ))
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-
-    new SlashCommandBuilder()
-        .setName('antilink')
-        .setDescription('Turn anti-link protection on or off')
-        .addStringOption(option =>
-            option.setName('status')
-                .setDescription('Choose on or off')
-                .setRequired(true)
-                .addChoices(
-                    { name: 'On', value: 'on' },
-                    { name: 'Off', value: 'off' }
-                ))
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-
-    new SlashCommandBuilder()
-        .setName('clear')
-        .setDescription('Delete a specific amount of messages (1-100)')
-        .addIntegerOption(option =>
-            option.setName('amount')
-                .setDescription('Number of messages to delete')
-                .setRequired(true)
-                .setMinValue(1)
-                .setMaxValue(100))
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
-
-    new SlashCommandBuilder()
-        .setName('ban')
-        .setDescription('Ban a member from the server')
-        .addUserOption(option =>
-            option.setName('target')
-                .setDescription('The user to ban')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('reason')
-                .setDescription('Reason for the ban'))
-        .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
-
-    new SlashCommandBuilder()
-        .setName('kick')
-        .setDescription('Kick a member from the server')
-        .addUserOption(option =>
-            option.setName('target')
-                .setDescription('The user to kick')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('reason')
-                .setDescription('Reason for the kick'))
-        .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
-
-    new SlashCommandBuilder()
-        .setName('serverinfo')
-        .setDescription('View information about this server'),
-
-    new SlashCommandBuilder()
-        .setName('botinfo')
-        .setDescription('View information about this bot')
-].map(command => command.toJSON());
-
-client.once('ready', async () => {
-    console.log(`✅ Logged in as ${client.user.tag}`);
-    const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
-    try {
-        await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-        console.log('✅ All advanced slash commands registered globally.');
-    } catch (error) {
-        console.error(error);
-    }
+client.once('ready', () => {
+    console.log(`Ingelogd als ${client.user.tag}! Bot is volledig operationeel.`);
+    client.user.setActivity('server protection', { type: 3 });
 });
 
-// Anti-Raid bij joinen
-client.on('guildMemberAdd', async (member) => {
-    const guildId = member.guild.id;
-    const settings = serverSettings.get(guildId) || { antiraid: true, antilink: true };
+// Automatische beveiligingen & commando handler
+client.on('messageCreate', async message => {
+    if (message.author.bot) return;
 
-    if (settings.antiraid === false) return;
-
-    const now = Date.now();
-    if (!joinMap.has(guildId)) {
-        joinMap.set(guildId, []);
-    }
-
-    const joins = joinMap.get(guildId);
-    joins.push(now);
-
-    const recentJoins = joins.filter(timestamp => now - timestamp < 10000);
-    joinMap.set(guildId, recentJoins);
-
-    if (recentJoins.length >= 5) {
-        try {
-            await member.kick('Anti-Raid: Mass join detected.');
-        } catch (err) {
-            console.error('Could not kick raid member:', err);
-        }
-    }
-});
-
-// Berichten beveiliging (Anti-Link & Anti-Spam)
-client.on('messageCreate', async (message) => {
-    if (message.author.bot || !message.guild) return;
-    if (message.author.id === OWNER_ID) return;
-    if (message.member.permissions.has(PermissionFlagsBits.Administrator)) return;
-
-    const guildId = message.guild.id;
-    const settings = serverSettings.get(guildId) || { antiraid: true, antilink: true };
-
-    if (message.mentions.users.size + message.mentions.roles.size > 3) {
-        await message.delete().catch(() => {});
-        return message.channel.send(`⚠️ ${message.author}, mass mentions are not allowed!`);
-    }
-
-    if (settings.antilink !== false) {
-        const linkRegex = /(https?:\/\/[^\s]+)|(discord\.gg\/[^\s]+)/gi;
-        if (linkRegex.test(message.content)) {
-            await message.delete().catch(() => {});
-            return message.channel.send(`⚠️ ${message.author}, links are not allowed in this server!`);
-        }
-    }
-
-    const userId = message.author.id;
-    const now = Date.now();
-    
-    if (!spamMap.has(userId)) {
-        spamMap.set(userId, { count: 1, lastMessage: now });
-    } else {
-        const userData = spamMap.get(userId);
-        if (now - userData.lastMessage < 5000) {
-            userData.count++;
-            if (userData.count >= 5) {
-                await message.member.timeout(60 * 1000, 'Spamming').catch(() => {});
-                message.channel.send(`🔇 ${message.author} has been timed out for 1 minute due to spamming.`);
-                spamMap.delete(userId);
+    // 1. Anti-Link beveiliging
+    if (message.content.includes('http://') || message.content.includes('https://') || message.content.includes('www.')) {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            try {
+                await message.delete();
+                const warning = await message.channel.send(`⚠️ ${message.author}, links sturen is niet toegestaan in deze server!`);
+                setTimeout(() => warning.delete().catch(() => {}), 5000);
+                return;
+            } catch (err) {
+                console.error("Kon bericht niet verwijderen:", err);
             }
-        } else {
-            userData.count = 1;
-            userData.lastMessage = now;
-        }
-    }
-});
-
-// Afhandelen van alle commando's en knoppen
-client.on('interactionCreate', async (interaction) => {
-    if (interaction.isChatInputCommand()) {
-        const { commandName, options, guildId } = interaction;
-
-        if (!serverSettings.has(guildId)) {
-            serverSettings.set(guildId, { antiraid: true, antilink: true });
-        }
-        const settings = serverSettings.get(guildId);
-
-        if (commandName === 'ticket-setup') {
-            const embed = new EmbedBuilder()
-                .setTitle('🎫 Support Tickets')
-                .setDescription('Need help? Click the button below to open a private ticket with our staff team.')
-                .setColor('#5865F2');
-
-            const button = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId('open_ticket')
-                    .setLabel('Open Ticket')
-                    .setEmoji('📩')
-                    .setStyle(ButtonStyle.Primary)
-            );
-
-            await interaction.channel.send({ embeds: [embed], components: [button] });
-            return interaction.reply({ content: '✅ Ticket panel created!', ephemeral: true });
-        }
-
-        if (commandName === 'antiraid') {
-            const status = options.getString('status');
-            settings.antiraid = (status === 'on');
-            return interaction.reply({ content: `🛡️ Anti-raid protection has been turned **${status}**.`, ephemeral: true });
-        }
-
-        if (commandName === 'antilink') {
-            const status = options.getString('status');
-            settings.antilink = (status === 'on');
-            return interaction.reply({ content: `🔗 Anti-link protection has been turned **${status}**.`, ephemeral: true });
-        }
-
-        if (commandName === 'clear') {
-            const amount = options.getInteger('amount');
-            await interaction.channel.bulkDelete(amount, true).catch(() => {});
-            return interaction.reply({ content: `🧹 Successfully deleted **${amount}** messages.`, ephemeral: true });
-        }
-
-        if (commandName === 'ban') {
-            const target = options.getUser('target');
-            const reason = options.getString('reason') || 'No reason provided';
-            const member = await interaction.guild.members.fetch(target.id).catch(() => {});
-            
-            if (!member) return interaction.reply({ content: '❌ User not found in this server.', ephemeral: true });
-
-            await member.ban({ reason }).catch(() => {});
-            return interaction.reply({ content: `🔨 Banned **${target.tag}** for: *${reason}*` });
-        }
-
-        if (commandName === 'kick') {
-            const target = options.getUser('target');
-            const reason = options.getString('reason') || 'No reason provided';
-            const member = await interaction.guild.members.fetch(target.id).catch(() => {});
-            
-            if (!member) return interaction.reply({ content: '❌ User not found in this server.', ephemeral: true });
-
-            await member.kick(reason).catch(() => {});
-            return interaction.reply({ content: `👢 Kicked **${target.tag}** for: *${reason}*` });
-        }
-
-        if (commandName === 'serverinfo') {
-            const embed = new EmbedBuilder()
-                .setTitle(`📊 Server Info: ${interaction.guild.name}`)
-                .addFields(
-                    { name: 'Total Members', value: `${interaction.guild.memberCount}`, inline: true },
-                    { name: 'Created On', value: `${interaction.guild.createdAt.toDateString()}`, inline: true }
-                )
-                .setColor('#38bdf8');
-            return interaction.reply({ embeds: [embed] });
-        }
-
-        if (commandName === 'botinfo') {
-            const embed = new EmbedBuilder()
-                .setTitle('🤖 Bot Information')
-                .setDescription('A secure, cloud-hosted moderation and ticket bot.')
-                .addFields(
-                    { name: 'Developer / Owner ID', value: `${OWNER_ID}`, inline: true },
-                    { name: 'Status', value: 'Online 24/7 in the cloud', inline: true }
-                )
-                .setColor('#5865F2');
-            return interaction.reply({ embeds: [embed] });
         }
     }
 
-    // Tickets knoppen
-    if (interaction.isButton() && interaction.customId === 'open_ticket') {
-        const channelName = `ticket-${interaction.user.username.toLowerCase()}`;
+    // 2. Commando verwerking (start met '!')
+    if (!message.content.startsWith(PREFIX)) return;
+
+    const args = message.content.slice(PREFIX.length).trim().split(/ +/);
+    const command = args.shift().toLowerCase();
+
+    // Commando: !help
+    if (command === 'help') {
+        const embed = new EmbedBuilder()
+            .setTitle('🛡️ GuardBot Beveiliging & Commando\'s')
+            .setColor(0x38bdf8)
+            .setDescription('Hier is een overzicht van alle beschikbare commando\'s:')
+            .addFields(
+                { name: '!ban @gebruiker', value: 'Verban een gebruiker permanent van de server.', inline: false },
+                { name: '!kick @gebruiker', value: 'Schop een gebruiker uit de server.', inline: false },
+                { name: '!clear [aantal]', value: 'Verwijder een aantal berichten tegelijk (1-100).', inline: false },
+                { name: '!lockdown', value: 'Beveilig de server direct tegen massale raids.', inline: false },
+                { name: '!ticket', value: 'Open een privégesprek met de moderatoren.', inline: false },
+                { name: '!ownerlock', value: 'Exclusieve beveiligingscheck voor de hoofdeigenaar.', inline: false }
+            )
+            .setFooter({ text: 'GuardBot Server Protection' });
+
+        return message.channel.send({ embeds: [embed] });
+    }
+
+    // Commando: !ban
+    if (command === 'ban') {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.BanMembers)) {
+            return message.reply('❌ Je hebt geen rechten om dit commando te gebruiken (`Ban Members` vereist).');
+        }
+        const member = message.mentions.members.first();
+        if (!member) return message.reply('⚠️ Vermeld alstublieft een geldige gebruiker om te bannen (`!ban @naam`).');
         
-        const existingChannel = interaction.guild.channels.cache.find(c => c.name === channelName);
-        if (existingChannel) {
-            return interaction.reply({ content: `❌ You already have an open ticket: ${existingChannel}`, ephemeral: true });
+        try {
+            await member.ban({ reason: `Geband door ${message.author.tag}` });
+            message.channel.send(`✅ **${member.user.tag}** is succesvol verbannen uit de server.`);
+        } catch (err) {
+            message.reply('❌ Het is niet gelukt om deze gebruiker te bannen (mogelijk heeft de bot te weinig rechten).');
+        }
+    }
+
+    // Commando: !kick
+    if (command === 'kick') {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.KickMembers)) {
+            return message.reply('❌ Je hebt geen rechten om dit commando te gebruiken (`Kick Members` vereist).');
+        }
+        const member = message.mentions.members.first();
+        if (!member) return message.reply('⚠️ Vermeld alstublieft een geldige gebruiker om te kicken (`!kick @naam`).');
+        
+        try {
+            await member.kick(`Gekicked door ${message.author.tag}`);
+            message.channel.send(`✅ **${member.user.tag}** is succesvol gekicked uit de server.`);
+        } catch (err) {
+            message.reply('❌ Het is niet gelukt om deze gebruiker te kicken.');
+        }
+    }
+
+    // Commando: !clear (berichten opschonen)
+    if (command === 'clear') {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+            return message.reply('❌ Je hebt geen rechten om berichten te wissen (`Manage Messages` vereist).');
+        }
+        const count = parseInt(args[0]);
+        if (isNaN(count) || count < 1 || count > 100) {
+            return message.reply('⚠️ Geef een getal op tussen 1 en 100 (`!clear 50`).');
         }
 
-        const ticketChannel = await interaction.guild.channels.create({
-            name: channelName,
-            type: ChannelType.GuildText,
-            permissionOverwrites: [
-                { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-                { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
-            ]
-        });
+        try {
+            await message.channel.bulkDelete(count, true);
+            const confirmation = await message.channel.send(`🧹 Er zijn **${count}** berichten opgeschoond.`);
+            setTimeout(() => confirmation.delete().catch(() => {}), 4000);
+        } catch (err) {
+            message.reply('❌ Berichten ouder dan 14 dagen kunnen niet in bulk worden verwijderd.');
+        }
+    }
 
-        const closeButton = new ActionRowBuilder().addComponents(
+    // Commando: !lockdown (Anti-Raid beveiliging)
+    if (command === 'lockdown') {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return message.reply('❌ Alleen beheerders kunnen de lockdown activeren.');
+        }
+
+        try {
+            await message.guild.channels.cache.forEach(async (channel) => {
+                if (channel.type === ChannelType.GuildText) {
+                    await channel.permissionOverwrites.edit(message.guild.roles.everyone, { SendMessages: false });
+                }
+            });
+            message.channel.send('🔒 **SERVER LOCKDOWN GEACTIVEERD!** Alle tekstkanalen zijn tijdelijk op slot gezet tegen raids.');
+        } catch (err) {
+            message.reply('❌ Er is een fout opgetreden bij het activeren van de lockdown.');
+        }
+    }
+
+    // Commando: !ticket (Ticketsysteem met knop)
+    if (command === 'ticket') {
+        const embed = new EmbedBuilder()
+            .setTitle('🎫 Ondersteuning / Support Tickets')
+            .setColor(0x5865F2)
+            .setDescription('Klik op de knop hieronder om een privé supportkanaal te openen met ons moderatieteam.');
+
+        const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-                .setCustomId('close_ticket')
-                .setLabel('Close Ticket')
-                .setEmoji('🔒')
-                .setStyle(ButtonStyle.Danger)
+                .setCustomId('create_ticket')
+                .setLabel('📩 Open Ticket')
+                .setStyle(ButtonStyle.Primary)
         );
 
-        await ticketChannel.send({
-            content: `Welcome ${interaction.user}! Staff will be with you shortly.`,
-            components: [closeButton]
-        });
-
-        return interaction.reply({ content: `✅ Your ticket has been created: ${ticketChannel}`, ephemeral: true });
+        return message.channel.send({ embeds: [embed], components: [row] });
     }
 
-    if (interaction.isButton() && interaction.customId === 'close_ticket') {
-        await interaction.reply('🔒 Closing ticket in 5 seconds...');
-        setTimeout(() => {
-            interaction.channel.delete().catch(() => {});
-        }, 5000);
+    // Commando: !ownerlock (Eigenaar beveiliging)
+    if (command === 'ownerlock') {
+        if (message.author.id !== OWNER_ID) {
+            return message.reply('⛔ **Toegang geweigerd!** Dit commando is uitsluitend voor de hoofdeigenaar van de bot.');
+        }
+        message.channel.send(`👑 **Owner-Lock Bevestigd:** Welkom baas! Jouw ID (\`${OWNER_ID}\`) heeft volledige immuniteit en controle over het systeem.`);
     }
 });
 
+// Interactie afhandeling voor het ticketsysteem knopje
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isButton()) return;
+
+    if (interaction.customId === 'create_ticket') {
+        const guild = interaction.guild;
+        const member = interaction.member;
+
+        try {
+            const ticketChannel = await guild.channels.create({
+                name: `ticket-${member.user.username}`,
+                type: ChannelType.GuildText,
+                permissionOverwrites: [
+                    {
+                        id: guild.id,
+                        deny: [PermissionsBitField.Flags.ViewChannel],
+                    },
+                    {
+                        id: member.id,
+                        allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory],
+                    },
+                    {
+                        id: client.user.id,
+                        allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels],
+                    },
+                ],
+            });
+
+            await interaction.reply({ content: `✅ Je ticket is aangemaakt: ${ticketChannel}`, ephemeral: true });
+
+            const welcomeEmbed = new EmbedBuilder()
+                .setTitle(`Ticket van ${member.user.tag}`)
+                .setDescription('Welkom! Stel hier je vraag of leg je probleem uit. Een moderator helpt je zo snel mogelijk verder.')
+                .setColor(0x38bdf8);
+
+            await ticketChannel.send({ content: `${member}, hier is je ticket!`, embeds: [welcomeEmbed] });
+        } catch (err) {
+            console.error("Fout bij aanmaken ticket:", err);
+            await interaction.reply({ content: '❌ Kon geen ticket kanaal aanmaken. Controleer de bot rechten.', ephemeral: true });
+        }
+    }
+});
+
+// Start de bot met de token uit Render environment variables
 client.login(process.env.TOKEN);
