@@ -63,9 +63,11 @@ client.on('messageCreate', async message => {
                 { name: '!lockdown', value: 'Instantly lock all text channels against raids.', inline: false },
                 { name: '!unlock', value: 'Lift the channel lockdown.', inline: false },
                 { name: '!slowmode <seconds>', value: 'Set a slowmode delay for the current channel.', inline: false },
+                { name: '!addadmin <@role>', value: 'Assign a custom bot admin role or permission.', inline: false },
+                { name: '!removeadmin <@role>', value: 'Remove a custom bot admin role.', inline: false },
                 { name: '!poll <question>', value: 'Create an interactive voting poll.', inline: false },
                 { name: '!serverinfo', value: 'Display detailed information about this server.', inline: false },
-                { name: '!userinfo [āk@user]', value: 'Display information about a user.', inline: false },
+                { name: '!userinfo <@user>', value: 'Display information about a user.', inline: false },
                 { name: '!ticket', value: 'Create a private support channel panel.', inline: false },
                 { name: '!ownerlock', value: 'Exclusive security verification for the bot owner.', inline: false }
             )
@@ -228,6 +230,40 @@ client.on('messageCreate', async message => {
             }
         } catch (err) {
             message.reply('❌ Failed to update slowmode.');
+        }
+    }
+
+    // Command: !addadmin
+    if (command === 'addadmin') {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return message.reply('❌ Only server administrators can assign bot management roles.');
+        }
+        const role = message.mentions.roles.first();
+        if (!role) return message.reply('⚠️ Please mention a role to grant admin status (`!addadmin @RoleName`).');
+
+        try {
+            // Geeft de rol automatisch de Administrator permissie binnen Discord
+            await role.setPermissions([PermissionsBitField.Flags.Administrator], `Granted bot admin by ${message.author.tag}`);
+            message.channel.send(`✅ Role **${role.name}** has been successfully granted full Administrator privileges.`);
+        } catch (err) {
+            message.reply('❌ Failed to update role permissions. Make sure my bot role is higher than the target role in the server settings.');
+        }
+    }
+
+    // Command: !removeadmin
+    if (command === 'removeadmin') {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return message.reply('❌ Only server administrators can remove bot management roles.');
+        }
+        const role = message.mentions.roles.first();
+        if (!role) return message.reply('⚠️ Please mention a role to remove admin status (`!removeadmin @RoleName`).');
+
+        try {
+            // Verwijdert de Administrator permissie van de rol
+            await role.setPermissions([], `Removed bot admin by ${message.author.tag}`);
+            message.channel.send(`✅ Administrator privileges have been removed from **${role.name}**.`);
+        } catch (err) {
+            message.reply('❌ Failed to update role permissions. Check my role hierarchy.');
         }
     }
 
